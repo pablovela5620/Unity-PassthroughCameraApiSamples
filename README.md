@@ -10,17 +10,12 @@
 6. [How to use the Passthrough Camera API](#how-to-use-the-passthrough-camera-api)
 7. [Best Practices](#best-practices)
 8. [Troubleshooting](#troubleshooting)
-9. [Unity Sentis for On-Device ML/CV Models](#unity-sentis-for-on-device-mlcv-models)
-10. [License](#license)
+9. [License](#license)
 
 ## Project Overview
 The **Unity-PassthroughCameraAPISamples** project helps Unity developers access Quest Camera data via the standard [`WebCamTexture`](https://docs.unity3d.com/6000.0/Documentation/ScriptReference/WebCamTexture.html) and [`Android Camera2 API`](https://developer.android.com/media/camera/camera2). It provides:
 - **Two helper classes:** `WebCamTextureManager` for handling permissions and initialization, and `PassthroughCameraUtils` for retrieving camera metadata and converting 2D to 3D coordinates.
-- **Five sample implementations:** including basic camera feed, brightness estimation, object detection with Unity Sentis, and shader-based effects.
-
-| CameraToWorld | BrightnessEstimation | MultiObjectDectection | ShaderSample |
-|:-------------:|:--------------------:|:---------------------:|:------------:|
-| ![GIF 1](./Media/CameraToWorld.gif) | ![GIF 2](./Media/BrightnessEstimation.gif) | ![GIF 3](./Media/ObjectDetectionSentis.gif) | ![GIF 4](./Media/ShaderSample.gif) |
+- **One sample implementation:** `CameraToWorld` demonstrating how to align the pose of the RGB camera images with Passthrough and convert 2D coordinates to 3D rays.
 
 For detailed project information, visit the [Meta Developers Documentation](https://developers.meta.com/horizon/documentation/unity/unity-pca-overview).
 
@@ -33,7 +28,6 @@ For detailed project information, visit the [Meta Developers Documentation](http
   - Older minor versions may work but are not fully validated.
 - **Packages / Dependencies:**
   - [**`Meta MRUK`**](https://assetstore.unity.com/packages/tools/integration/meta-mr-utility-kit-272450?srsltid=AfmBOorj1QQDtt7_6vcIWgu0Tw2Q8YLTQB3hRN5QHORRmjaj8sUEmrkv) (com.meta.xr.mrutilitykit, v74.0.0 or higher)
-  - [**`Unity Sentis`**](https://unity.com/sentis) (com.unity.sentis, v2.1.1)
 
 > [!IMPORTANT]
 > When updating the project to **`Unity 6`**, the Android Manifest will need to be updated. Find more information in our [Troubleshooting guide](#troubleshooting--known-issues) below.
@@ -64,9 +58,6 @@ For detailed project information, visit the [Meta Developers Documentation](http
   - v74 currently needs to one frame delay before `WebCamTexture.Play()`.
 - **Permission Handling:**
   - The API currently handles one permission request at a time. Using other permission management systems concurrently (e.g., OVRManager or OVRPermissionsRequester) might cause conflicts.
-- **Model Limitations (MultiObjectDetection Sample):**
-  - The integrated object detection model, optimized for Quest 3/3S, may not achieve 100% accuracy. Certain objects can be misclassified (e.g., cell phones might be recognized as remote) and grouped under broad classes.
-  - The model is trained on 80 classes, meaning that individual objects within the same class may not be distinctly recognized.
 - **Performance Considerations:**
   - Processing high-resolution camera feeds and running on-device ML/CV models can impact performance, particularly on the main thread. Optimizations such as asynchronous data handling or layer-by-layer inference are recommended.
 
@@ -86,17 +77,12 @@ git clone https://github.com/oculus-samples/Unity-PassthroughCameraApiSamples
 
 ## Project Content
 
-The `Unity-PassthroughCameraApiSamples` Unity project contains **five samples** that demonstrate how to use `WebCamTexture` class to access the camera data. All sample code and resources are located inside the [**`PassthroughCameraApiSamples`**](./Assets/PassthroughCameraApiSamples/) folder:
+The `Unity-PassthroughCameraApiSamples` Unity project contains **one sample** that demonstrates how to use `WebCamTexture` class to access the camera data. All sample code and resources are located inside the [**`PassthroughCameraApiSamples`**](./Assets/PassthroughCameraApiSamples/) folder:
 
-* **[`CameraViewer`](./Assets/PassthroughCameraApiSamples/CameraViewer)**: Shows a 2D canvas with the camera data inside.
 * **[`CameraToWorld`](./Assets/PassthroughCameraApiSamples/CameraToWorld)**: Demonstrates how to align the pose of the RGB camera images with Passthrough, and how a 2D image coordinates can be transformed into 3D rays in world space.
-* **[`BrightnessEstimation`](./Assets/PassthroughCameraApiSamples/BrightnessEstimation)**: Illustrates brightness estimation and how it can be used to adapt the experience to the user’s environment.
-* **[`MultiObjectDetection`](./Assets/PassthroughCameraApiSamples/MultiObjectDetection)**: Shows how to feed camera data to Unity Sentis to recognize real-world objects.
-* **[`ShaderSample`](./Assets/PassthroughCameraApiSamples/ShaderSample)**: Demonstrates how to apply custom effects to camera texture on GPU.
 
 And a C# classes to access the Quest Camera data using `WebCamTexture` object:
 * **[`PassthroughCamera`](./Assets/PassthroughCameraApiSamples/PassthroughCamera)**: Contains all the c# classes and prefabs to use `WebCamTexture` object, manage permissions and access some camera metadata.
-* **[`StartScene`](./Assets/PassthroughCameraApiSamples/StartScene)**: The scene containing the menu to switch between the above-mentioned samples.
 
 # How to use the Passthrough Camera API
 
@@ -108,7 +94,7 @@ And a C# classes to access the Quest Camera data using `WebCamTexture` object:
 4) Create a new empty scene.
 5) Use `Meta > Tools > Building Blocks` to add **Camera Rig** building blocks to your scene.
 6) To integrate Passthrough Camera API in your scene, **drag and drop** the **`WebCamTextureManagerPrefab`** prefab to your scene.
-7) To access the camera texture from a custom C# script, get a reference to the `WebCamTextureManager` and access its **`WebCamTexture`** property. The property will return a valid non-null value only after all permissions have been granted and texture is initialized, so check it is not null before accessing properties of the returned `WebCamTexture`. E.g., in the `CameraViewer` example, we assign the `WebCamTexture` to the `RawImage.texture` to display the texture with the Unity UI system.
+7) To access the camera texture from a custom C# script, get a reference to the `WebCamTextureManager` and access its **`WebCamTexture`** property. The property will return a valid non-null value only after all permissions have been granted and the texture is initialized, so check it is not null before accessing properties of the returned `WebCamTexture`.
 
 Depending on the selected PassthroughCameraEye.eye, the `WebCamTextureManager` will select a corresponding [`WebCamDevice`](https://docs.unity3d.com/ScriptReference/WebCamDevice.html) by mapping [`WebCamTexture.devices`](https://docs.unity3d.com/ScriptReference/WebCamTexture-devices.html) to CameraManager.getCameraIdList() by index.
 
@@ -222,112 +208,11 @@ To learn more about the capabilities of **`PassthroughCameraUtils`** class, refe
 
 Following these steps should help you diagnose and resolve common issues when working with the `Passthrough Camera API`.
 
-# Unity Sentis for On-Device ML/CV Models
-
-Unity Sentis offers a framework to load models from popular open-source platforms and compile them directly on-device. This sample demonstrates how to use Sentis with a YOLO model for real-time object detection on Quest 3 devices. For more details, visit [`Unity Sentis`](https://unity.com/products/sentis).
-
-## Prerequisites
-
-- **Horizon OS:** v74 or higher
-- **Devices:** Quest 3 / 3S
-- **Permissions:** Grant Camera and Spatial Data permissions
-- **Unity:** 2022.3.58f1 with Sentis package 2.1.1 (com.unity.sentis)
-- **MR Utility Kit (MRUK):** v74.0.0 or higher
-
-## Known Issues
-
-1. **Model Accuracy:**
-   The model is optimized for Quest 3 performance; accuracy may not reach 100%.
-2. **Class Granularity:**
-   The model is trained on 80 classes, meaning similar objects (e.g., Monitor and TV) are grouped together (e.g., TV_Monitor).
-3. **Object Recognition Challenges:**
-   Some classes (e.g., cell phones) may often be misidentified.
-4. **Device Recognition:**
-   New devices like Quest 3 controllers might not be recognized correctly or may appear as remote controllers.
-
-## Building the Sample
-
-1. Download the [`Unity-PassthroughCameraApiSamples`](#download-the-project) repository.
-2. Open the project in the Unity Editor.
-3. In **Build Profiles**, set the Active Platform to **Android**.
-4. Open the sample scene `MultiObjectDectection.unity`
-5. In `Meta > Tools > Project Setup Tool`, if prompted with "MR Utility Kit recommends Scene Support to be set to Required", select "...", ignore it, then fix and apply any other issues.
-6. Build the app and test it on your headset.
-
-## Using the Sample
-
-- **Description:**
-  Demonstrates how to detect multiple objects using Sentis with a pretrained YOLO model.
-- **Controls (using Quest 3 controllers):**
-  - **Menus (Start/Pause):**
-    - **Button A:** Start playing
-  - **In-Game:**
-    - **Button A:** Place a marker at each detected object’s world position
-  - **Global:**
-    - **Button MENU:** Return to Samples selection
-- **How to Play:**
-  1. Start the application and look around.
-  2. When an object is detected, 2D floating boxes appear around it.
-  3. Press **Button A** to place a 3D marker with the object’s class name.
-  4. The model identifies 80 classes – refer to [`Sentis YOLO classes`](./Assets/PassthroughCameraApiSamples/MultiObjectDetection/SentisInference/Model/SentisYoloClasses.txt) for details.
-
-> [!NOTE]
-> You can modify this sample to load an ML/CV model of your choice. Models vary widely in complexity, so select one that meets your performance needs. Unity also offers samples for other tasks, such as digit recognition.
-
-## Recommendations for Using Sentis on Meta Quest Devices
-
-### Model Architecture
-
-- **Keep it Simple:**
-  Use models with less complex architectures. Large generative models and LLMs perform poorly on Quest devices.
-- **Main Thread Processing:**
-  Sentis runs on the main thread, affecting render pipeline performance.
-
-> [!TIP]
-> Implement a layer-by-layer inference technique (splitting inference across frames) to avoid blocking the main thread.
-
-### Model Size
-
-- **Resource Considerations:**
-  Large models can lead to long load times, main thread lag during the first inference, and reduced memory for other resources.
-- **Recommendations:**
-  - Use the smallest version of your model (e.g., the 8MB version of YOLO instead of the 146MB version).
-  - Convert and quantize the model to Sentis format (e.g., to Uint8) to reduce loading times.
-
-### GPU vs. CPU Processing
-
-- **Graphics-Related Tasks:**
-  If the model is used for graphics (e.g., image processing directly for shaders), keep processing on the GPU.
-  - Use the **GPUCompute backend** for Sentis and feed camera data directly.
-- **CPU Processing:**
-  If you need to access output data on the CPU:
-  - Run the model on the GPU and transfer results asynchronously, or
-  - Run the model directly on the CPU.
-- **General Tip:**
-  Always retrieve output data asynchronously to avoid main thread blocking. See [`Sentis Async Output`](https://docs.unity3d.com/Packages/com.unity.sentis@2.1/manual/read-output-async.html) for more details.
-
-### NPU Backend
-
-- **Current Status:**
-  Sentis does not currently leverage any NPU or hardware acceleration. It operates as a regular Android platform application on Quest devices, so factor this into model selection.
-
-### Report an issue
-
-If you encounter any issues, please report them with the following details:
-
-- **Unity Engine version** used in your project.
-- **XR plugin** used in your project (Oculus XR or Open XR) and the version number.
-- **Quest device** model and **Horizon OS version**.
-- Attach in your report any useful **logcat logs**.
-  - You can use `adb logcat >> log.txt` to save the logs to a file.
-- Attach any **video or screenshot** of the issue.
-- Any **relevant information** about your specific use case, e.g. other sdk or plugins used in your project.
 
 ## License
 
 The [`Oculus License`](./LICENSE.txt) applies to the SDK and supporting material. The [`MIT License`](./Assets/PassthroughCameraApiSamples/LICENSE.txt) applies to only certain, clearly marked documents. If an individual file does not indicate which license it is subject to, then the Oculus License applies.
 
 However,
-* Files from [`Assets/PassthroughCameraApiSamples/MultiObjectDetection/SentisInference/Model`](./Assets/PassthroughCameraApiSamples/MultiObjectDetection/SentisInference/Model) are licensed under [`MIT`](https://github.com/MultimediaTechLab/YOLO/blob/main/LICENSE).
 
 See the [`CONTRIBUTING`](./CONTRIBUTING.md) file for how to help out.
