@@ -1,11 +1,13 @@
 {
   "dependencies": {
+    "com.cysharp.yetanotherhttphandler": "https://github.com/Cysharp/YetAnotherHttpHandler.git?path=src/YetAnotherHttpHandler#1.11.1",
+    "com.github-glitchenzo.nugetforunity": "https://github.com/GlitchEnzo/NuGetForUnity.git?path=/src/NuGetForUnity",
     "com.meta.xr.mrutilitykit": "74.0.0",
     "com.unity.feature.development": "1.0.2",
     "com.unity.sentis": "2.1.1",
     "com.unity.ugui": "1.0.0",
     "com.unity.xr.management": "4.5.0",
-    "com.unity.xr.oculus": "4.5.0",
+    "com.unity.xr.oculus": "4.5.1",
     "com.unity.modules.ai": "1.0.0",
     "com.unity.modules.androidjni": "1.0.0",
     "com.unity.modules.animation": "1.0.0",
