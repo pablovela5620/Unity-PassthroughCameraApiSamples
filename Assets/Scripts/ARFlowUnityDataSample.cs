@@ -50,8 +50,10 @@ public class ARFlowUnityDataSample : MonoBehaviour
     // Start is called before the first frame update
     void Start()
     {
-        string serverURL = addressInput.text;
-        _client = new ARFlowClient($"http://{serverURL}");
+        //string serverURL = addressInput.text;
+        //_client = new ARFlowClient($"http://{serverURL}");
+
+        _client = new ARFlowClient($"http://100.114.111.55:8500");
 
         connectButton.onClick.AddListener(OnConnectButtonClick);
         startPauseButton.onClick.AddListener(OnStartPauseButtonClick);
