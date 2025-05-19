@@ -8,10 +8,10 @@ EditorBuildSettings:
   - enabled: 1
     path: Assets/PassthroughCameraApiSamples/StartScene/StartScene.unity
     guid: 69e1b31c45bac42f88f75017ee404de1
-  - enabled: 0
+  - enabled: 1
     path: Assets/PassthroughCameraApiSamples/CameraViewer/CameraViewer.unity
     guid: ad5bb12b10679b840999aa322aa7a491
-  - enabled: 1
+  - enabled: 0
     path: Assets/PassthroughCameraApiSamples/CameraToWorld/CameraToWorld.unity
     guid: 756785b371a4f49438b7e2148816e892
   - enabled: 0
