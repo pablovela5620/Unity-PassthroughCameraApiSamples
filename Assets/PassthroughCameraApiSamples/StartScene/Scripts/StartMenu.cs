@@ -53,6 +53,19 @@ namespace PassthroughCameraSamples.StartScene
             }
 
             var uiBuilder = DebugUIBuilder.Instance;
+
+            // ----------------------------------------------------------------------
+            // Auto-launch straight into the first Passthrough sample scene (if any)
+            // ----------------------------------------------------------------------
+            if (passthroughScenes.Count > 0)
+            {
+                Debug.Log($"[StartMenu] Auto-launch enabled – loading first Passthrough scene (build index {passthroughScenes[0].Item1}).");
+
+                // Directly load the scene (calling our wrapper would invoke Hide() before Show() and cause a null-ref)
+                UnityEngine.SceneManagement.SceneManager.LoadScene(passthroughScenes[0].Item1);
+                return;
+            }
+
             if (passthroughScenes.Count > 0)
             {
                 _ = uiBuilder.AddLabel("Passthrough Sample Scenes", DebugUIBuilder.DEBUG_PANE_LEFT);
