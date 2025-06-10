@@ -25,11 +25,17 @@ namespace PassthroughCameraSamples.ARFlowBridge
 
         [Header("Preview / Debug (optional)")]
         [SerializeField] private RawImage m_previewImage;
-        [SerializeField] private Text     m_debugText;
+        [SerializeField] private Text     m_connectedIPText;
+        [SerializeField] private Text     m_recordingStatusText;
+        [SerializeField] private Text     m_recordingDurationText;
+        
+        [Header("Control Buttons")]
+        [SerializeField] private Button   m_recordingToggleButton;
+        [SerializeField] private Button   m_reconnectButton;
 
         [Header("ARFlow connection")]
         [Tooltip("gRPC endpoint, e.g. 192.168.1.189:8500")]
-        [SerializeField] private string   m_serverAddress = "192.168.1.189:8500";
+        [SerializeField] private string   m_serverAddress;
         [Tooltip("Device name shown on the ARFlow dashboard")]
         [SerializeField] private string   m_deviceName    = "Quest3_Passthrough";
         [Tooltip("Text element to display FPS and latency")]
@@ -43,15 +49,11 @@ namespace PassthroughCameraSamples.ARFlowBridge
         [Tooltip("Enable hand pose logging")]
         [SerializeField] private bool m_enableHandPoseLogging = true;
         [Tooltip("Log hand poses every N frames (to avoid spam)")]
-        [SerializeField] private int m_handPoseLogInterval = 30;
+        [SerializeField] private int m_handPoseLogInterval = 1000;
 
         private ARFlowClient _client;
         private Texture2D    _cpuTex;
         private Vector2Int   _res;
-
-        private bool   _usingMainCamera;
-        private Camera _mainCam;
-        private RenderTexture _mainRT;
 
         private bool   _streaming;
         private float  _latencyMs;
@@ -59,6 +61,10 @@ namespace PassthroughCameraSamples.ARFlowBridge
         private float  _intervalTimer;
         private float  _uploadFps;
         private bool   _isProcessingFrame;
+        
+        // Recording state tracking
+        private float  _recordingStartTime;
+        private bool   _isRecording;
 
         // Hand tracking variables
         private int    _frameCountForHandLogging = 0;
@@ -91,27 +97,6 @@ namespace PassthroughCameraSamples.ARFlowBridge
                 Debug.Log("[ARFlowMetaQuest] Hand tracking integration enabled.");
             }
 
-#if UNITY_EDITOR
-            if (m_webCamTextureManager == null || m_webCamTextureManager.WebCamTexture == null)
-            {
-                _usingMainCamera = true;
-                _mainCam = Camera.main;
-                if (_mainCam == null)
-                {
-                    Debug.LogError("[ARFlowMetaQuest] No Main Camera found for editor debug.");
-                    yield break;
-                }
-
-                _res = new Vector2Int(_mainCam.pixelWidth, _mainCam.pixelHeight);
-                _mainRT = new RenderTexture(_res.x, _res.y, 24, RenderTextureFormat.ARGB32);
-                _mainCam.targetTexture = _mainRT;
-                if (m_previewImage) m_previewImage.texture = _mainRT;
-
-                Log($"Editor debug: streaming Main Camera {_res.x}×{_res.y}");
-                ConnectAndStart();
-                yield break;
-            }
-#endif
             while (m_webCamTextureManager.WebCamTexture == null ||
                    m_webCamTextureManager.WebCamTexture.width <= 16)
             {
@@ -122,7 +107,7 @@ namespace PassthroughCameraSamples.ARFlowBridge
             _res = new Vector2Int(camTex.width, camTex.height);
 
             if (m_previewImage) m_previewImage.texture = camTex;
-            Log($"WebCam ready {_res.x}×{_res.y}");
+            Debug.Log($"WebCam ready {_res.x}×{_res.y}");
 
             ConnectAndStart();
         }
@@ -136,44 +121,33 @@ namespace PassthroughCameraSamples.ARFlowBridge
             int cameraResolutionX = _res.x;
             int cameraResolutionY = _res.y;
 
-            if (_usingMainCamera && _mainCam)
-            {
-                Matrix4x4 P = _mainCam.projectionMatrix;
-                originalFx = P[0,0] * cameraResolutionX;
-                originalFy = P[1,1] * cameraResolutionY;
-                principalPointX = cameraResolutionX * 0.5f;
-                principalPointY = cameraResolutionY * 0.5f;
-            }
-            else
-            {
-                var eyeToUse = PassthroughCameraEye.Left; 
-                if (m_webCamTextureManager != null) {
-                    if (System.Enum.IsDefined(typeof(PassthroughCameraEye), m_webCamTextureManager.Eye.ToString()))
-                    {
-                        eyeToUse = (PassthroughCameraEye)System.Enum.Parse(typeof(PassthroughCameraEye), m_webCamTextureManager.Eye.ToString());
-                    }
-                    else
-                    {
-                        Debug.LogWarning($"[ARFlowMetaQuest] m_webCamTextureManager.Eye ('{m_webCamTextureManager.Eye}') is not a valid PassthroughCameraEye. Defaulting to Left.");
-                    }
-                }
-
-                PassthroughCameraIntrinsics intrinsics = PassthroughCameraUtils.GetCameraIntrinsics(eyeToUse);
-
-                if (intrinsics.Resolution.x > 0 && intrinsics.Resolution.y > 0)
+            var eyeToUse = PassthroughCameraEye.Left; 
+            if (m_webCamTextureManager != null) {
+                if (System.Enum.IsDefined(typeof(PassthroughCameraEye), m_webCamTextureManager.Eye.ToString()))
                 {
-                    originalFx = intrinsics.FocalLength.x;
-                    originalFy = intrinsics.FocalLength.y;
-                    principalPointX = intrinsics.PrincipalPoint.x;
-                    principalPointY = intrinsics.PrincipalPoint.y;
-                    cameraResolutionX = intrinsics.Resolution.x;
-                    cameraResolutionY = intrinsics.Resolution.y;
-                    _res = new Vector2Int(cameraResolutionX, cameraResolutionY);
+                    eyeToUse = (PassthroughCameraEye)System.Enum.Parse(typeof(PassthroughCameraEye), m_webCamTextureManager.Eye.ToString());
                 }
                 else
                 {
-                    Debug.LogError("[ARFlowMetaQuest] Failed to get valid camera intrinsics from PassthroughCameraUtils.");
+                    Debug.LogWarning($"[ARFlowMetaQuest] m_webCamTextureManager.Eye ('{m_webCamTextureManager.Eye}') is not a valid PassthroughCameraEye. Defaulting to Left.");
                 }
+            }
+
+            PassthroughCameraIntrinsics intrinsics = PassthroughCameraUtils.GetCameraIntrinsics(eyeToUse);
+
+            if (intrinsics.Resolution.x > 0 && intrinsics.Resolution.y > 0)
+            {
+                originalFx = intrinsics.FocalLength.x;
+                originalFy = intrinsics.FocalLength.y;
+                principalPointX = intrinsics.PrincipalPoint.x;
+                principalPointY = intrinsics.PrincipalPoint.y;
+                cameraResolutionX = intrinsics.Resolution.x;
+                cameraResolutionY = intrinsics.Resolution.y;
+                _res = new Vector2Int(cameraResolutionX, cameraResolutionY);
+            }
+            else
+            {
+                Debug.LogError("[ARFlowMetaQuest] Failed to get valid camera intrinsics from PassthroughCameraUtils.");
             }
 
             Debug.Log($"[ARFlowMetaQuest] Camera Intrinsics: fx={originalFx:F2}, fy={originalFy:F2}, " +
@@ -206,8 +180,17 @@ namespace PassthroughCameraSamples.ARFlowBridge
                 CameraTransform = new RegisterRequest.Types.CameraTransform { Enabled = true }
             });
 
-            Log($"Connected to {m_serverAddress}");
+            Debug.Log($"Connected to {m_serverAddress}");
             _streaming = true;
+            _isRecording = true;
+            _recordingStartTime = Time.realtimeSinceStartup;
+            
+            // Update debug text to show connected IP address
+            UpdateConnectedIPText($"Connected to: {m_serverAddress}");
+            UpdateRecordingStatus();
+            
+            // Setup button listeners and initial states
+            SetupButtons();
         }
 
         private void Update()
@@ -246,6 +229,9 @@ namespace PassthroughCameraSamples.ARFlowBridge
                 }
                 m_statsText.text = statsText;
             }
+            
+            // Update recording duration
+            UpdateRecordingDuration();
         }
 
         private async Task UploadFrameAsync()
@@ -257,54 +243,34 @@ namespace PassthroughCameraSamples.ARFlowBridge
             {
                 Pose cameraPose = new Pose();
 
-                if (_usingMainCamera)
+                var camTex = m_webCamTextureManager?.WebCamTexture;
+                if (camTex == null || !camTex.didUpdateThisFrame)
                 {
-                    if (_mainCam == null || _mainRT == null) 
-                    {
-                        _isProcessingFrame = false; return;
-                    }
-                    _mainCam.Render();
-                    await ReadRTToTextureAsync(_mainRT);
-                    cameraPose.position = _mainCam.transform.position;
-                    cameraPose.rotation = _mainCam.transform.rotation;
+                    _isProcessingFrame = false;
+                    return;
                 }
-                else
-                {
-                    var camTex = m_webCamTextureManager?.WebCamTexture;
-                    if (camTex == null || !camTex.didUpdateThisFrame)
-                    {
-                        _isProcessingFrame = false;
-                        return;
-                    }
-                    await CopyWebCamToTextureAsync(camTex);
+                await CopyWebCamToTextureAsync(camTex);
 
-                    var eyeToUse = PassthroughCameraEye.Left; 
-                    if (m_webCamTextureManager != null)
+                var eyeToUse = PassthroughCameraEye.Left; 
+                if (m_webCamTextureManager != null)
+                {
+                    if (System.Enum.IsDefined(typeof(PassthroughCameraEye), m_webCamTextureManager.Eye.ToString()))
                     {
-                        if (System.Enum.IsDefined(typeof(PassthroughCameraEye), m_webCamTextureManager.Eye.ToString()))
-                        {
-                            eyeToUse = (PassthroughCameraEye)System.Enum.Parse(typeof(PassthroughCameraEye), m_webCamTextureManager.Eye.ToString());
-                        }
-                        else
-                        {
-                            Debug.LogWarning($"[ARFlowMetaQuest] m_webCamTextureManager.Eye ('{m_webCamTextureManager.Eye}') is not a valid PassthroughCameraEye for pose. Defaulting to Left.");
-                        }
-                    }
-                    
-                    if (PassthroughCameraUtils.IsSupported)
-                    {
-                        cameraPose = PassthroughCameraUtils.GetCameraPoseInWorld(eyeToUse);
+                        eyeToUse = (PassthroughCameraEye)System.Enum.Parse(typeof(PassthroughCameraEye), m_webCamTextureManager.Eye.ToString());
                     }
                     else
                     {
-                        Debug.LogWarning("[ARFlowMetaQuest] Passthrough Camera API not supported, cannot get camera pose.");
+                        Debug.LogWarning($"[ARFlowMetaQuest] m_webCamTextureManager.Eye ('{m_webCamTextureManager.Eye}') is not a valid PassthroughCameraEye for pose. Defaulting to Left.");
                     }
                 }
-
-                // Log hand poses along with camera pose (less frequently to avoid spam)
-                if (m_enableHandPoseLogging && m_handTrackingManager != null && _framesSentInInterval % 10 == 0)
+                
+                if (PassthroughCameraUtils.IsSupported)
                 {
-                    LogDetailedHandPoses(cameraPose);
+                    cameraPose = PassthroughCameraUtils.GetCameraPoseInWorld(eyeToUse);
+                }
+                else
+                {
+                    Debug.LogWarning("[ARFlowMetaQuest] Passthrough Camera API not supported, cannot get camera pose.");
                 }
 
                 float startTime = Time.realtimeSinceStartup;
@@ -365,18 +331,21 @@ namespace PassthroughCameraSamples.ARFlowBridge
             bool leftTracked = m_handTrackingManager.IsLeftHandTracked();
             bool rightTracked = m_handTrackingManager.IsRightHandTracked();
 
+            if (!leftTracked && !rightTracked) return;
+
             string logMessage = "[ARFlowMetaQuest] Hand Poses - ";
             
             if (leftTracked)
             {
-                Vector3 leftIndexTip = m_handTrackingManager.GetLeftIndexTip();
-                Vector3 leftThumbTip = m_handTrackingManager.GetLeftThumbTip();
-                bool leftPinching = m_handTrackingManager.IsLeftHandPinching();
-                bool leftGrabbing = m_handTrackingManager.IsLeftHandGrabbing();
+                var leftPoints = m_handTrackingManager.GetAllHandPoints(true);
+                int leftPointCount = leftPoints.Count;
                 
-                logMessage += $"Left: Index({leftIndexTip.x:F3},{leftIndexTip.y:F3},{leftIndexTip.z:F3}) " +
-                             $"Thumb({leftThumbTip.x:F3},{leftThumbTip.y:F3},{leftThumbTip.z:F3}) " +
-                             $"Pinch:{leftPinching} Grab:{leftGrabbing} | ";
+                logMessage += $"Left: Points:{leftPointCount} | Points: ";
+                foreach (Vector3 point in leftPoints)
+                {
+                    logMessage += $"({point.x:F3}, {point.y:F3}, {point.z:F3}), ";
+                }
+                logMessage += " | ";
             }
             else
             {
@@ -385,73 +354,18 @@ namespace PassthroughCameraSamples.ARFlowBridge
 
             if (rightTracked)
             {
-                Vector3 rightIndexTip = m_handTrackingManager.GetRightIndexTip();
-                Vector3 rightThumbTip = m_handTrackingManager.GetRightThumbTip();
-                bool rightPinching = m_handTrackingManager.IsRightHandPinching();
-                bool rightGrabbing = m_handTrackingManager.IsRightHandGrabbing();
+                var rightPoints = m_handTrackingManager.GetAllHandPoints(false);
+                int rightPointCount = rightPoints.Count;
                 
-                logMessage += $"Right: Index({rightIndexTip.x:F3},{rightIndexTip.y:F3},{rightIndexTip.z:F3}) " +
-                             $"Thumb({rightThumbTip.x:F3},{rightThumbTip.y:F3},{rightThumbTip.z:F3}) " +
-                             $"Pinch:{rightPinching} Grab:{rightGrabbing}";
+                logMessage += $"Right: Points:{rightPointCount} | Points: ";
+                foreach (Vector3 point in rightPoints)
+                {
+                    logMessage += $"({point.x:F3}, {point.y:F3}, {point.z:F3}), ";
+                }
             }
             else
             {
                 logMessage += "Right: Not Tracked";
-            }
-
-            Debug.Log(logMessage);
-        }
-
-        private void LogDetailedHandPoses(Pose cameraPose)
-        {
-            if (m_handTrackingManager == null) return;
-
-            bool leftTracked = m_handTrackingManager.IsLeftHandTracked();
-            bool rightTracked = m_handTrackingManager.IsRightHandTracked();
-
-            if (!leftTracked && !rightTracked) return;
-
-            string logMessage = $"[ARFlowMetaQuest] Frame Poses - Camera: Pos({cameraPose.position.x:F3},{cameraPose.position.y:F3},{cameraPose.position.z:F3}) " +
-                               $"Rot({cameraPose.rotation.x:F3},{cameraPose.rotation.y:F3},{cameraPose.rotation.z:F3},{cameraPose.rotation.w:F3}) | ";
-
-            if (leftTracked)
-            {
-                // Get all finger positions for left hand
-                Vector3 leftThumb = m_handTrackingManager.GetFingerTipPosition(true, OVRHand.HandFinger.Thumb);
-                Vector3 leftIndex = m_handTrackingManager.GetFingerTipPosition(true, OVRHand.HandFinger.Index);
-                Vector3 leftMiddle = m_handTrackingManager.GetFingerTipPosition(true, OVRHand.HandFinger.Middle);
-                Vector3 leftRing = m_handTrackingManager.GetFingerTipPosition(true, OVRHand.HandFinger.Ring);
-                Vector3 leftPinky = m_handTrackingManager.GetFingerTipPosition(true, OVRHand.HandFinger.Pinky);
-                
-                float leftPinchStrength = m_handTrackingManager.GetLeftPinchStrength();
-                var leftConfidence = m_handTrackingManager.GetLeftHandConfidence();
-
-                logMessage += $"LeftHand: Confidence:{leftConfidence} PinchStr:{leftPinchStrength:F2} " +
-                             $"Fingers[T:({leftThumb.x:F2},{leftThumb.y:F2},{leftThumb.z:F2}) " +
-                             $"I:({leftIndex.x:F2},{leftIndex.y:F2},{leftIndex.z:F2}) " +
-                             $"M:({leftMiddle.x:F2},{leftMiddle.y:F2},{leftMiddle.z:F2}) " +
-                             $"R:({leftRing.x:F2},{leftRing.y:F2},{leftRing.z:F2}) " +
-                             $"P:({leftPinky.x:F2},{leftPinky.y:F2},{leftPinky.z:F2})] | ";
-            }
-
-            if (rightTracked)
-            {
-                // Get all finger positions for right hand
-                Vector3 rightThumb = m_handTrackingManager.GetFingerTipPosition(false, OVRHand.HandFinger.Thumb);
-                Vector3 rightIndex = m_handTrackingManager.GetFingerTipPosition(false, OVRHand.HandFinger.Index);
-                Vector3 rightMiddle = m_handTrackingManager.GetFingerTipPosition(false, OVRHand.HandFinger.Middle);
-                Vector3 rightRing = m_handTrackingManager.GetFingerTipPosition(false, OVRHand.HandFinger.Ring);
-                Vector3 rightPinky = m_handTrackingManager.GetFingerTipPosition(false, OVRHand.HandFinger.Pinky);
-                
-                float rightPinchStrength = m_handTrackingManager.GetRightPinchStrength();
-                var rightConfidence = m_handTrackingManager.GetRightHandConfidence();
-
-                logMessage += $"RightHand: Confidence:{rightConfidence} PinchStr:{rightPinchStrength:F2} " +
-                             $"Fingers[T:({rightThumb.x:F2},{rightThumb.y:F2},{rightThumb.z:F2}) " +
-                             $"I:({rightIndex.x:F2},{rightIndex.y:F2},{rightIndex.z:F2}) " +
-                             $"M:({rightMiddle.x:F2},{rightMiddle.y:F2},{rightMiddle.z:F2}) " +
-                             $"R:({rightRing.x:F2},{rightRing.y:F2},{rightRing.z:F2}) " +
-                             $"P:({rightPinky.x:F2},{rightPinky.y:F2},{rightPinky.z:F2})]";
             }
 
             Debug.Log(logMessage);
@@ -476,20 +390,6 @@ namespace PassthroughCameraSamples.ARFlowBridge
             }
         }
 
-        // Public method to get current hand poses (for external access)
-        public (Vector3 leftIndex, Vector3 rightIndex, bool leftTracked, bool rightTracked) GetCurrentHandPoses()
-        {
-            if (m_handTrackingManager == null)
-                return (Vector3.zero, Vector3.zero, false, false);
-
-            return (
-                m_handTrackingManager.GetLeftIndexTip(),
-                m_handTrackingManager.GetRightIndexTip(),
-                m_handTrackingManager.IsLeftHandTracked(),
-                m_handTrackingManager.IsRightHandTracked()
-            );
-        }
-
         // Public method to get detailed hand data for external systems
         public HandPoseData GetDetailedHandData()
         {
@@ -500,16 +400,8 @@ namespace PassthroughCameraSamples.ARFlowBridge
             {
                 LeftHandTracked = m_handTrackingManager.IsLeftHandTracked(),
                 RightHandTracked = m_handTrackingManager.IsRightHandTracked(),
-                LeftIndexTip = m_handTrackingManager.GetLeftIndexTip(),
-                LeftThumbTip = m_handTrackingManager.GetLeftThumbTip(),
-                RightIndexTip = m_handTrackingManager.GetRightIndexTip(),
-                RightThumbTip = m_handTrackingManager.GetRightThumbTip(),
-                LeftPinching = m_handTrackingManager.IsLeftHandPinching(),
-                RightPinching = m_handTrackingManager.IsRightHandPinching(),
-                LeftGrabbing = m_handTrackingManager.IsLeftHandGrabbing(),
-                RightGrabbing = m_handTrackingManager.IsRightHandGrabbing(),
-                LeftPinchStrength = m_handTrackingManager.GetLeftPinchStrength(),
-                RightPinchStrength = m_handTrackingManager.GetRightPinchStrength(),
+                LeftHandPoints = m_handTrackingManager.GetLeftHandPoints(),
+                RightHandPoints = m_handTrackingManager.GetRightHandPoints(),
                 LeftConfidence = m_handTrackingManager.GetLeftHandConfidence(),
                 RightConfidence = m_handTrackingManager.GetRightHandConfidence()
             };
@@ -536,18 +428,20 @@ namespace PassthroughCameraSamples.ARFlowBridge
             dataList.Add((byte)(handData.LeftHandTracked ? 1 : 0));
             if (handData.LeftHandTracked)
             {
-                // Left hand finger positions (5 fingers * 3 floats * 4 bytes = 60 bytes)
-                AddVector3ToBytes(dataList, m_handTrackingManager.GetFingerTipPosition(true, OVRHand.HandFinger.Thumb));
-                AddVector3ToBytes(dataList, m_handTrackingManager.GetFingerTipPosition(true, OVRHand.HandFinger.Index));
-                AddVector3ToBytes(dataList, m_handTrackingManager.GetFingerTipPosition(true, OVRHand.HandFinger.Middle));
-                AddVector3ToBytes(dataList, m_handTrackingManager.GetFingerTipPosition(true, OVRHand.HandFinger.Ring));
-                AddVector3ToBytes(dataList, m_handTrackingManager.GetFingerTipPosition(true, OVRHand.HandFinger.Pinky));
+                // Number of points for left hand
+                var leftPoints = handData.LeftHandPoints;
+                dataList.AddRange(System.BitConverter.GetBytes(leftPoints.Count));
                 
-                // Left hand state data (8 bytes)
-                AddFloatToBytes(dataList, handData.LeftPinchStrength);
-                dataList.Add((byte)(handData.LeftPinching ? 1 : 0));
-                dataList.Add((byte)(handData.LeftGrabbing ? 1 : 0));
+                // All bone positions for left hand
+                foreach (var point in leftPoints)
+                {
+                    AddVector3ToBytes(dataList, point);
+                }
+                
+                // Left hand confidence
                 dataList.Add((byte)handData.LeftConfidence);
+                dataList.Add(0); // padding
+                dataList.Add(0); // padding
                 dataList.Add(0); // padding
             }
             
@@ -555,18 +449,20 @@ namespace PassthroughCameraSamples.ARFlowBridge
             dataList.Add((byte)(handData.RightHandTracked ? 1 : 0));
             if (handData.RightHandTracked)
             {
-                // Right hand finger positions (5 fingers * 3 floats * 4 bytes = 60 bytes)
-                AddVector3ToBytes(dataList, m_handTrackingManager.GetFingerTipPosition(false, OVRHand.HandFinger.Thumb));
-                AddVector3ToBytes(dataList, m_handTrackingManager.GetFingerTipPosition(false, OVRHand.HandFinger.Index));
-                AddVector3ToBytes(dataList, m_handTrackingManager.GetFingerTipPosition(false, OVRHand.HandFinger.Middle));
-                AddVector3ToBytes(dataList, m_handTrackingManager.GetFingerTipPosition(false, OVRHand.HandFinger.Ring));
-                AddVector3ToBytes(dataList, m_handTrackingManager.GetFingerTipPosition(false, OVRHand.HandFinger.Pinky));
+                // Number of points for right hand
+                var rightPoints = handData.RightHandPoints;
+                dataList.AddRange(System.BitConverter.GetBytes(rightPoints.Count));
                 
-                // Right hand state data (8 bytes)
-                AddFloatToBytes(dataList, handData.RightPinchStrength);
-                dataList.Add((byte)(handData.RightPinching ? 1 : 0));
-                dataList.Add((byte)(handData.RightGrabbing ? 1 : 0));
+                // All bone positions for right hand
+                foreach (var point in rightPoints)
+                {
+                    AddVector3ToBytes(dataList, point);
+                }
+                
+                // Right hand confidence
                 dataList.Add((byte)handData.RightConfidence);
+                dataList.Add(0); // padding
+                dataList.Add(0); // padding
                 dataList.Add(0); // padding
             }
             
@@ -585,14 +481,6 @@ namespace PassthroughCameraSamples.ARFlowBridge
             dataList.AddRange(System.BitConverter.GetBytes(vector.x));
             dataList.AddRange(System.BitConverter.GetBytes(vector.y));
             dataList.AddRange(System.BitConverter.GetBytes(vector.z));
-        }
-
-        /// <summary>
-        /// Helper method to add float data to byte list
-        /// </summary>
-        private void AddFloatToBytes(List<byte> dataList, float value)
-        {
-            dataList.AddRange(System.BitConverter.GetBytes(value));
         }
 
         private async Task CopyWebCamToTextureAsync(WebCamTexture camTex)
@@ -656,10 +544,15 @@ namespace PassthroughCameraSamples.ARFlowBridge
 
         private void OnDestroy()
         {
-#if UNITY_EDITOR
-            if (_usingMainCamera && _mainCam != null) _mainCam.targetTexture = null;
-#endif
             _streaming = false;
+            _isRecording = false;
+            
+            // Update UI to reflect stopped state
+            UpdateRecordingStatus();
+            
+            // Clean up button listeners
+            if (m_recordingToggleButton != null) m_recordingToggleButton.onClick.RemoveAllListeners();
+            if (m_reconnectButton != null) m_reconnectButton.onClick.RemoveAllListeners();
             
             // Unsubscribe from hand tracking events
             if (m_handTrackingManager != null)
@@ -669,18 +562,146 @@ namespace PassthroughCameraSamples.ARFlowBridge
             }
             
             if (_cpuTex != null) Destroy(_cpuTex);
-            if (_mainRT != null) 
+        }
+
+        private void UpdateConnectedIPText(string text)
+        {
+            if (m_connectedIPText) m_connectedIPText.text = text;
+        }
+
+        private void UpdateRecordingStatus()
+        {
+            if (m_recordingStatusText)
             {
-                if (RenderTexture.active == _mainRT) RenderTexture.active = null;
-                _mainRT.Release();
-                Destroy(_mainRT);
+                m_recordingStatusText.text = _isRecording ? "Recording" : "Not Recording";
+            }
+            UpdateButtonStates();
+        }
+
+        private void UpdateRecordingDuration()
+        {
+            if (m_recordingDurationText)
+            {
+                float currentDuration = Time.realtimeSinceStartup - _recordingStartTime;
+                m_recordingDurationText.text = $"{currentDuration:F2} seconds";
             }
         }
 
-        private void Log(string msg)
+        /// <summary>
+        /// Toggle recording state (useful for UI buttons)
+        /// </summary>
+        public void ToggleRecording()
         {
-            Debug.Log(msg);
-            if (m_debugText) m_debugText.text = msg;
+            _isRecording = !_isRecording;
+            if (_isRecording)
+            {
+                _recordingStartTime = Time.realtimeSinceStartup;
+                Debug.Log("[ARFlowMetaQuest] Recording started manually.");
+            }
+            else
+            {
+                Debug.Log("[ARFlowMetaQuest] Recording stopped manually.");
+            }
+            UpdateRecordingStatus();
+        }
+
+        private void SetupButtons()
+        {
+            // Setup recording control buttons
+            if (m_recordingToggleButton != null)
+            {
+                m_recordingToggleButton.onClick.RemoveAllListeners();
+                m_recordingToggleButton.onClick.AddListener(ToggleRecording);
+            }
+            
+            if (m_reconnectButton != null)
+            {
+                m_reconnectButton.onClick.RemoveAllListeners();
+                m_reconnectButton.onClick.AddListener(ReconnectToServer);
+            }
+            
+            // Update button states
+            UpdateButtonStates();
+        }
+        
+        private void UpdateButtonStates()
+        {
+            // Update recording toggle button state and text
+            if (m_recordingToggleButton != null)
+            {
+                m_recordingToggleButton.interactable = true; // Always interactable for toggling
+                
+                // Update button text based on current recording state
+                var buttonText = m_recordingToggleButton.GetComponentInChildren<Text>();
+                if (buttonText != null)
+                {
+                    buttonText.text = _isRecording ? "Stop Recording" : "Start Recording";
+                }
+                
+                // Alternative: Try TextMeshProUGUI if Text component is not found
+                if (buttonText == null)
+                {
+                    var tmpText = m_recordingToggleButton.GetComponentInChildren<TextMeshProUGUI>();
+                    if (tmpText != null)
+                    {
+                        tmpText.text = _isRecording ? "Stop Recording" : "Start Recording";
+                    }
+                }
+            }
+                
+            // Reconnect button is always available when streaming
+            if (m_reconnectButton != null)
+                m_reconnectButton.interactable = true;
+        }
+        
+        /// <summary>
+        /// Reconnect to ARFlow server - called by UI button
+        /// </summary>
+        public void ReconnectToServer()
+        {
+            Debug.Log("[ARFlowMetaQuest] Reconnecting to server...");
+            
+            // Stop current streaming and reset state
+            _streaming = false;
+            _isRecording = false;
+            
+            // Update UI to show disconnected state
+            UpdateConnectedIPText("Reconnecting...");
+            UpdateRecordingStatus();
+            UpdateButtonStates();
+            
+            // Disconnect current client if exists
+            if (_client != null)
+            {
+                try
+                {
+                    _client = null; // Let GC handle cleanup
+                }
+                catch (System.Exception e)
+                {
+                    Debug.LogWarning($"[ARFlowMetaQuest] Error during disconnect: {e.Message}");
+                }
+            }
+            
+            // Restart connection after a brief delay
+            StartCoroutine(DelayedReconnect());
+        }
+        
+        private IEnumerator DelayedReconnect()
+        {
+            // Wait a moment before reconnecting
+            yield return new WaitForSeconds(1.0f);
+            
+            try
+            {
+                ConnectAndStart();
+            }
+            catch (System.Exception e)
+            {
+                Debug.LogError($"[ARFlowMetaQuest] Reconnection failed: {e.Message}");
+                UpdateConnectedIPText("Reconnection failed");
+                UpdateButtonStates();
+            }
         }
     }
 
@@ -690,16 +711,8 @@ namespace PassthroughCameraSamples.ARFlowBridge
     {
         public bool LeftHandTracked;
         public bool RightHandTracked;
-        public Vector3 LeftIndexTip;
-        public Vector3 LeftThumbTip;
-        public Vector3 RightIndexTip;
-        public Vector3 RightThumbTip;
-        public bool LeftPinching;
-        public bool RightPinching;
-        public bool LeftGrabbing;
-        public bool RightGrabbing;
-        public float LeftPinchStrength;
-        public float RightPinchStrength;
+        public List<Vector3> LeftHandPoints;
+        public List<Vector3> RightHandPoints;
         public OVRHand.TrackingConfidence LeftConfidence;
         public OVRHand.TrackingConfidence RightConfidence;
     }
